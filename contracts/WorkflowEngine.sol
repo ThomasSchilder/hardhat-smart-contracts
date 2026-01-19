@@ -49,14 +49,17 @@ contract WorkflowEngine {
         mapping(uint16 => uint16) marking;
     }
 
+    // Events
     event WorkflowCreated(uint64 indexed workflowId, address indexed owner);
     event TaskScheduled(uint64 indexed workflowId, uint16 indexed transitionId, bytes imageCID, bytes inputCID, bytes metadataCID);
 
+    // Errors
     error InvalidPlaceMarkings(uint16[] places, uint16[] weights);
     error DuplicatePlaceIdFound(uint16 place);
     error PlaceDoesNotExist(uint16 place);
     error DuplicateTransitionIdFound(uint16 transitionId);
 
+    // Public state variables
     mapping(uint64 => Instance) public workflowInstances;
     uint64 public incrementalId = 0;
 
@@ -154,8 +157,19 @@ contract WorkflowEngine {
         updateInstanceState(workflowId);
     }
 
+    /** ------------------------------------------------------------------------------------------------
+     *
+     *
+     * Underneath this comment, a collection of getter functions to retrieve workflow instance details
+     * is provided. These functions are used for testing the contract and for interaction with off-chain
+     * worker nodes.
+     *
+     *
+     * ------------------------------------------------------------------------------------------------
+     */
+
     /**
-     * Getter functions to retrieve workflow (instance) details
+     * Getter function to retrieve all places in a given workflow instance.
      */
     function getPlaces(uint64 workflowId) external view returns (uint16[] memory workflowPlaces) {
         workflowPlaces = new uint16[](workflowInstances[workflowId].placeIds.length);
@@ -164,6 +178,9 @@ contract WorkflowEngine {
         }
         return workflowPlaces;
     }
+    /**
+     * Getter function to retrieve all transitions in a given workflow instance.
+     */
     function getWorkflowTransitions(uint64 workflowId) external view returns (Transition[] memory transitions) {
         transitions = new Transition[](workflowInstances[workflowId].transitionIds.length);
         for (uint i=0; i< workflowInstances[workflowId].transitionIds.length; i++) {
@@ -172,9 +189,15 @@ contract WorkflowEngine {
         }
         return transitions;
     }
+    /**
+     * Getter function to retrieve a specific transition using workflowId and transitionId.
+     */
     function getWorkflowTransitionById(uint64 workflowId, uint16 transitionId) external view returns (Transition memory transition) {
         return workflowInstances[workflowId].transitions[transitionId];
     }
+    /**
+     * Getter function to retrieve all input arcs in a given workflow instance.
+     */
     function getWorkflowInputArcs(uint64 workflowId) external view returns (InputArc[] memory inputArcs) {
         uint16 arcLength = 0;
         for (uint16 i = 0; i < workflowInstances[workflowId].placeIds.length; i++) {
@@ -193,6 +216,9 @@ contract WorkflowEngine {
         }
         return inputArcs;
     }
+    /**
+     * Getter function to retrieve all output arcs in a given workflow instance.
+     */
     function getWorkflowOutputArcs(uint64 workflowId) external view returns (OutputArc[] memory outputArcs) {
         uint16 arcLength = 0;
         for (uint16 i = 0; i < workflowInstances[workflowId].transitionIds.length; i++) {
@@ -211,6 +237,9 @@ contract WorkflowEngine {
         }
         return outputArcs;
     }
+    /**
+     * Getter function to retrieve the current marking of a given workflow instance.
+     */
     function getMarking(uint64 workflowId) external view returns (uint16[] memory places, uint16[] memory marking) {
         places = workflowInstances[workflowId].placeIds;
         marking = new uint16[](workflowInstances[workflowId].placeIds.length);
