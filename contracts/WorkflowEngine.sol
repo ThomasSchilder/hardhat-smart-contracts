@@ -67,6 +67,7 @@ contract WorkflowEngine {
     error DuplicateTransitionIdFound(uint16 transitionId);
     error TaskUnclaimable(uint64 workflowId, uint16 transitionId);
     error TaskWasAlreadyClaimed(uint64 workflowId, uint16 transitionId, address claimedBy);
+    error TaskReserved(uint64 workflowId, uint16 transitionId, address claimedBy);
     error CompletionNotAllowed(uint64 workflowId, uint16 transitionId);
     error TaskSkipped(uint64 workflowId, uint16 transitionId);
 
@@ -209,12 +210,13 @@ contract WorkflowEngine {
     function claimTask(uint64 workflowId, uint16 transitionId) external {
         Instance storage inst = workflowInstances[workflowId];
         Transition storage transition =  workflowInstances[workflowId].transitions[transitionId];
+        if (transition.state == State.CLAIMED) revert TaskWasAlreadyClaimed(workflowId, transitionId, transition.claimedBy);
+        if (transition.claimedBy != address(0) && transition.claimedBy != msg.sender) revert TaskReserved(workflowId, transitionId, transition.claimedBy);
         if (transition.state != State.SCHEDULED) revert TaskUnclaimable(workflowId, transitionId);
-        if (transition.claimedBy != address(0)) revert TaskWasAlreadyClaimed(workflowId, transitionId, transition.claimedBy);
 
         // Check if input places can still be claimed: not necessarily the case (XOR cases)
-        bool unclaimed = checkIfTransitionIsEnabled(inst, transitionId);
-        if (unclaimed == false) {
+        bool claimable = checkIfTransitionIsEnabled(inst, transitionId);
+        if (claimable == false) {
             // Task was SCHEDULED, but no longer claimable: set to SKIPPED
             transition.state = State.SKIPPED;
             emit TaskSetSkipped(workflowId, transitionId);

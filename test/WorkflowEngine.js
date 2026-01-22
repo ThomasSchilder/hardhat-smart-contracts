@@ -34,8 +34,6 @@ const Null = {
     ADDRESS: ethers.ZeroAddress
 }
 
-console.log("null value for address", Null.ADDRESS);
-
 describe("WorkflowEngine contract", () => {
 
     let CID = null;
@@ -48,12 +46,12 @@ describe("WorkflowEngine contract", () => {
      * Function to create a valid petrinet definition for testing.
      * The petrinet will be in it simples form: start->task->end.
      */
-    function createValidPetrinet() {
+    function createValidPetrinet(ownerAddress=Null.ADDRESS) {
         const places = [1, 2, 3];
 
         const transitions = [
-            { transitionId: 1, state: 0, claimedBy: Null.ADDRESS, imageCID: CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, metadataCID: ethers.getBytes("0x") },
-            { transitionId: 2, state: 0, claimedBy: Null.ADDRESS, imageCID: CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, metadataCID: ethers.getBytes("0x") },
+            { transitionId: 1, state: 0, claimedBy: ownerAddress, imageCID: CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, metadataCID: Null.BYTES },
+            { transitionId: 2, state: 0, claimedBy: ownerAddress, imageCID: CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, metadataCID: Null.BYTES },
 
         ];
         const arcs = [
@@ -85,7 +83,7 @@ describe("WorkflowEngine contract", () => {
     }
 
     it("Should succesfully deploy the WorkflowEngine contract", async () => {
-        const { workflowEngine, owner, addr1, addr2 } = await loadFixture(deployWorkflowEngineFixture);
+        const { workflowEngine } = await loadFixture(deployWorkflowEngineFixture);
 
         // Contract should be deployed.
         expect(workflowEngine).to.not.equal(null);
@@ -151,12 +149,12 @@ describe("WorkflowEngine contract", () => {
         expect(expectedFinal).to.equal(true);
 
         // Check if events were emitted
-        expect(tx).to.emit(workflowEngine, "WorkflowCreated").withArgs(1, owner.address);
-        expect(tx).to.emit(workflowEngine, "TaskScheduled").withArgs(1, 1, "QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5", Null.ADDRESS)
+        await expect(tx).to.emit(workflowEngine, "WorkflowCreated").withArgs(1, owner.address);
+        await expect(tx).to.emit(workflowEngine, "TaskSetScheduled").withArgs(1, 1, CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, Null.BYTES)
     });
 
     it("Should determine fireable transitions correctly: workflow creation", async () => {
-        const { workflowEngine, owner } = await loadFixture(deployWorkflowEngineFixture);
+        const { workflowEngine } = await loadFixture(deployWorkflowEngineFixture);
 
         // Create simple petri-net
         const { places, transitions, arcs, initialMarking, finalPlaces } = createValidPetrinet();
@@ -180,6 +178,36 @@ describe("WorkflowEngine contract", () => {
         expect(secondTransition.state).to.equal(State.CREATED);
 
     });
+
+    it("Should be able to claim tasks", async () => {
+         const { workflowEngine, owner, addr1, addr2} = await loadFixture(deployWorkflowEngineFixture);
+
+        // Create simple petri-net
+        const { places, transitions, arcs, initialMarking, finalPlaces } = createValidPetrinet(owner);
+
+        // Create a new workflow instance
+        const tx = await workflowEngine.createWorkflow(places, transitions, arcs, initialMarking, finalPlaces)
+
+        // Wait until the events have been emitted
+        await expect(tx).to.emit(workflowEngine, "WorkflowCreated");
+        await expect(tx).to.emit(workflowEngine, "TaskSetScheduled");
+
+        // Try to claim with wrong user
+        await expect(workflowEngine.connect(addr1).claimTask(1, 1)).to.be.revertedWithCustomError(workflowEngine, "TaskReserved").withArgs(1, 1, owner)
+
+        // Expect event: workflowId, transitionId & address
+        await expect(workflowEngine.connect(owner).claimTask(1, 1)).to.emit(workflowEngine, "TaskSetClaimed").withArgs(1, 1, owner);
+
+        // Not able to claim tasks when state is not scheduled (was already claimed by someone)
+        await expect(workflowEngine.connect(addr2).claimTask(1, 1)).to.be.revertedWithCustomError(workflowEngine, "TaskWasAlreadyClaimed").withArgs(1, 1, owner);
+
+        // Expect error when task cannot be claimed yet
+        await expect(workflowEngine.connect(owner).claimTask(1, 2)).to.be.revertedWithCustomError(workflowEngine, "TaskUnclaimable").withArgs(1, 2);
+    });
+
+    it("Should not be able to claim skipped tasks", async () => {
+
+    })
 
     it("Should be able to access worflow variables", async () => {
 
