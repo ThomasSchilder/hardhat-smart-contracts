@@ -4,6 +4,8 @@ pragma solidity ^0.8.0;
 import "hardhat/console.sol";
 
 /**
+ * Author: ThomasSchilder
+ *
  * This smart contract contains a decentralized engine for scientific workflow execution.
  * The engine is based on a Petri net model. Inspiration for this approach comes from:
  *
@@ -60,6 +62,8 @@ contract WorkflowEngine {
     event TaskSetScheduled(uint64 indexed workflowId, uint16 indexed transitionId, bytes imageCID, bytes metadataCID);
     event TaskSetClaimed(uint64 indexed workflowId, uint16 indexed transitionId, address claimedBy);
     event TaskSetSkipped(uint64 indexed workflowId, uint16 indexed transitionId);
+    event TaskSetCompleted(uint64 indexed workflowId, uint16 indexed transitionId, address completedBy);
+
     // Errors
     error InvalidPlaceMarkings(uint16[] places, uint16[] weights);
     error DuplicatePlaceIdFound(uint16 place);
@@ -240,6 +244,7 @@ contract WorkflowEngine {
 
         // Fire task: update state +increment marking on all output places
         transition.state = State.COMPLETED;
+        emit TaskSetCompleted(workflowId, transitionId, msg.sender);
 
         // Update output places using arcs
         Arc[] memory workflowArcs = inst.arcs[transitionId];
@@ -253,7 +258,6 @@ contract WorkflowEngine {
             uint16 placeId = arc.placeId;
             inst.marking[placeId] = inst.marking[placeId] + arc.weight;
         }
-
         // Enable new transitions based on new marking.
         updateInstanceState(workflowId);
     }

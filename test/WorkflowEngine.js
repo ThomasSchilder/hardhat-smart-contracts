@@ -205,8 +205,44 @@ describe("WorkflowEngine contract", () => {
         await expect(workflowEngine.connect(owner).claimTask(1, 2)).to.be.revertedWithCustomError(workflowEngine, "TaskUnclaimable").withArgs(1, 2);
     });
 
-    it("Should not be able to claim skipped tasks", async () => {
+    it("Should be able to complete tasks", async () => {
+        const { workflowEngine, owner, addr1, addr2} = await loadFixture(deployWorkflowEngineFixture);
 
+        // Create simple petri-net
+        const { places, transitions, arcs, initialMarking, finalPlaces } = createValidPetrinet(owner);
+
+        // Create a new workflow instance
+        const tx = await workflowEngine.createWorkflow(places, transitions, arcs, initialMarking, finalPlaces)
+
+        // Wait until the events have been emitted
+        await expect(tx).to.emit(workflowEngine, "WorkflowCreated");
+        await expect(tx).to.emit(workflowEngine, "TaskSetScheduled");
+
+        // Claim task
+        await expect(workflowEngine.connect(owner).claimTask(1, 1)).to.emit(workflowEngine, "TaskSetClaimed").withArgs(1, 1, owner);
+
+        // Try to complete with the wrong user
+        await expect(workflowEngine.connect(addr1).completeTask(1, 1)).to.be.revertedWithCustomError(workflowEngine, "CompletionNotAllowed").withArgs(1, 1)
+
+        // Expect task 2 to still be scheduled
+        let nextTransition = await workflowEngine.getWorkflowTransitionById(1, 2);
+        expect(nextTransition.state).to.not.equal(State.SCHEDULED);
+
+        // Complete task with correct user
+        let completeTask = await workflowEngine.connect(owner).completeTask(1, 1);
+        await expect(completeTask).to.emit(workflowEngine, "TaskSetCompleted").withArgs(1, 1, owner);
+
+        // Expect next task to be planned
+        await expect(completeTask).to.emit(workflowEngine, "TaskSetScheduled").withArgs(1, 2, CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, Null.BYTES)
+
+        // Expect
+        nextTransition = await workflowEngine.getWorkflowTransitionById(1, 2);
+        expect(nextTransition.state).to.equal(State.SCHEDULED);
+    })
+
+
+    it("Should not be able to claim skipped tasks", async () => {
+        // For later: when XOR structures are implemented.
     })
 
     it("Should be able to access worflow variables", async () => {
@@ -222,16 +258,20 @@ describe("WorkflowEngine contract", () => {
 // - Select from asset store
 // --> each macro is a petrinet structure
 
-// XOR
-// JOIN
-// SPLIT
+// XOR: EITHER OF TWO PATHS
+// SPLIT: TWO PARALLEL PATHS
+// JOIN: JOIN TWO PARALLEL PATHS
+
 
 
 
 // Idea create a transition type :
+
 // - task
-// - signoff
-// - user input
-// - timeout (race)
+// - automatic: for JOIN construct (merging all paths and continue)
+// - signoff: wait until user X allows the workflow to continue (Active learning case?)
+// - user input: reach quorum
+// - timeout (task can be completed after X time)
+//
 
 
