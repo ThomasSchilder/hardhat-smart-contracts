@@ -14,19 +14,25 @@ describe("WorkflowEngine contract", () => {
      * The petrinet will be in it simples form: start->task->end.
      */
     function createValidPetrinet() {
-        const places = [1, 2];
+        const places = [1, 2, 3];
 
         const transitions = [
             { transitionId: 1, state: 0, imageCID: CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, metadataCID: ethers.getBytes("0x") },
+            { transitionId: 2, state: 0, imageCID: CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, metadataCID: ethers.getBytes("0x") },
+
         ];
         const inputArcs = [
-            { placeId: 1, transitionId: 1, weight: 1 }
+            { placeId: 1, transitionId: 1, weight: 1 },
+            { placeId: 2, transitionId: 2, weight: 1 }
         ];
         const outputArcs = [
-            { transitionId: 1, placeId: 2, weight: 1 }
+            { transitionId: 1, placeId: 2, weight: 1 },
+            { transitionId: 2, placeId: 3, weight: 1 }
+
         ];
-        const initialMarking = [1, 0];
-        return { places, transitions, inputArcs, outputArcs, initialMarking }
+        const initialMarking = [1, 0, 0];
+        const finalPlaces = [3];
+        return { places, transitions, inputArcs, outputArcs, initialMarking, finalPlaces };
     }
 
     function bytesToCID(bytes) {
@@ -61,10 +67,10 @@ describe("WorkflowEngine contract", () => {
         const { workflowEngine, owner } = await loadFixture(deployWorkflowEngineFixture);
 
         // Create simple petri-net
-        const { places, transitions, inputArcs, outputArcs, initialMarking } = createValidPetrinet();
+        const { places, transitions, inputArcs, outputArcs, initialMarking, finalPlaces } = createValidPetrinet();
 
         // Create a new workflow instance
-        const tx = await workflowEngine.createWorkflow(places, transitions, inputArcs, outputArcs, initialMarking)
+        const tx = await workflowEngine.createWorkflow(places, transitions, inputArcs, outputArcs, initialMarking, finalPlaces)
 
         // Retrieve the created workflow instance (id = 1, automatically increments)
         let instance = await workflowEngine.workflowInstances(1);
@@ -80,12 +86,10 @@ describe("WorkflowEngine contract", () => {
             expect(createdPlaces.map(Number)).to.include(placeId);
         })
 
-        // expect(instance.places(1)).to.equal(true);
-
-        // Check if transitions were created correctly
+        // Check if transitions were created correctly: check 2nd transition (should have state 0: CREATED; not yet enabled)
         let createdTransitions = await workflowEngine.getWorkflowTransitions(1);
-        let firstTransition = createdTransitions[0];
-        expect(firstTransition.transitionId).to.equal(1);
+        let firstTransition = createdTransitions[1];
+        expect(firstTransition.transitionId).to.equal(2);
         expect(firstTransition.state).to.equal(0);
         expect(bytesToCID(firstTransition.imageCID)).to.equal("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5");
         expect(bytesToCID(firstTransition.metadataCID)).to.be.null;
@@ -109,8 +113,70 @@ describe("WorkflowEngine contract", () => {
         expect(marking.length).to.equal(initialMarking.length);
         expect(marking[0]).to.equal(initialMarking[0]);
         expect(marking[1]).to.equal(initialMarking[1]);
+        expect(marking[2]).to.equal(initialMarking[2]);
+
+
+        // Check if finalPlaces are set
+        let expectedNotFinal = await workflowEngine.isFinalPlace(1, 1);
+        let expectedFinal = await workflowEngine.isFinalPlace(1, 3);
+        expect(expectedNotFinal).to.equal(false);
+        expect(expectedFinal).to.equal(true);
 
         // Check if event was emitted.
         expect(tx).to.emit(workflowEngine, "WorkflowCreated").withArgs(1, owner.address);
     });
+
+    it("Should determine fireable transitions correctly: workflow creation", async () => {
+        const { workflowEngine, owner } = await loadFixture(deployWorkflowEngineFixture);
+
+        // Create simple petri-net
+        const { places, transitions, inputArcs, outputArcs, initialMarking, finalPlaces } = createValidPetrinet();
+
+        // Create a new workflow instance
+        const tx = await workflowEngine.createWorkflow(places, transitions, inputArcs, outputArcs, initialMarking, finalPlaces)
+
+        /**
+         * After creation, the updateInstanceState function is executed, which updates the state of transitions based on the marking
+         **/
+        let createdTransitions = await workflowEngine.getWorkflowTransitions(1);
+
+        // First transition should be enabled
+        let firstTransition = createdTransitions[0];
+        expect(firstTransition.transitionId).to.equal(1);
+        // Expect to equal to SCHEDULED (2)
+        expect(firstTransition.state).to.equal(0);
+
+        // Second transition should still be disabled
+        let secondTransition = createdTransitions[1];
+        expect(firstTransition.transitionId).to.equal(1);
+        // Expect to equal to CREATED (1)
+        expect(firstTransition.state).to.equal(0);
+
+    });
+
+    it("Should be able to access worflow variables", async () => {
+
+    })
+
+    it("Should check fire guards correctly", async () => {
+
+    })
 })
+
+// In the workflow builder: Work with macro's
+// - Select from asset store
+// --> each macro is a petrinet structure
+
+// XOR
+// JOIN
+// SPLIT
+
+
+
+// Idea create a transition type :
+// - task
+// - signoff
+// - user input
+// - timeout (race)
+
+
