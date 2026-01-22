@@ -1,6 +1,41 @@
 const { loadFixture } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 const { expect } = require("chai");
 
+/**
+ * Simulate Enum values using constants:
+ **/
+const ArcType = {
+    INPUT: 0,
+    OUTPUT: 1
+};
+
+const State = {
+    CREATED: 0,
+    SCHEDULED: 1,
+    CLAIMED: 2,
+    AWAIT_USER_INPUT: 3,
+    RUNNING: 4,
+    COMPLETED: 5,
+    FAILED: 6,
+    SKIPPED: 7
+};
+
+const VarType = {
+    STRING: 0,
+    NUMBER: 1,
+    BOOLEAN: 2,
+    ADDRESS: 3,
+    CID: 4
+}
+
+// Constants
+const Null = {
+    BYTES: ethers.getBytes("0x"),
+    ADDRESS: ethers.ZeroAddress
+}
+
+console.log("null value for address", Null.ADDRESS);
+
 describe("WorkflowEngine contract", () => {
 
     let CID = null;
@@ -17,22 +52,20 @@ describe("WorkflowEngine contract", () => {
         const places = [1, 2, 3];
 
         const transitions = [
-            { transitionId: 1, state: 0, imageCID: CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, metadataCID: ethers.getBytes("0x") },
-            { transitionId: 2, state: 0, imageCID: CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, metadataCID: ethers.getBytes("0x") },
+            { transitionId: 1, state: 0, claimedBy: Null.ADDRESS, imageCID: CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, metadataCID: ethers.getBytes("0x") },
+            { transitionId: 2, state: 0, claimedBy: Null.ADDRESS, imageCID: CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, metadataCID: ethers.getBytes("0x") },
 
         ];
-        const inputArcs = [
-            { placeId: 1, transitionId: 1, weight: 1 },
-            { placeId: 2, transitionId: 2, weight: 1 }
-        ];
-        const outputArcs = [
-            { transitionId: 1, placeId: 2, weight: 1 },
-            { transitionId: 2, placeId: 3, weight: 1 }
+        const arcs = [
+            { transitionId: 1, placeId: 1, weight: 1, arcType: ArcType.INPUT },
+            { transitionId: 2, placeId: 2, weight: 1, arcType: ArcType.INPUT},
+            { transitionId: 1, placeId: 2, weight: 1, arcType: ArcType.OUTPUT},
+            { transitionId: 2, placeId: 3, weight: 1, arcType: ArcType.OUTPUT}
+        ]
 
-        ];
         const initialMarking = [1, 0, 0];
         const finalPlaces = [3];
-        return { places, transitions, inputArcs, outputArcs, initialMarking, finalPlaces };
+        return { places, transitions, arcs, initialMarking, finalPlaces };
     }
 
     function bytesToCID(bytes) {
@@ -67,10 +100,10 @@ describe("WorkflowEngine contract", () => {
         const { workflowEngine, owner } = await loadFixture(deployWorkflowEngineFixture);
 
         // Create simple petri-net
-        const { places, transitions, inputArcs, outputArcs, initialMarking, finalPlaces } = createValidPetrinet();
+        const { places, transitions, arcs, initialMarking, finalPlaces } = createValidPetrinet();
 
         // Create a new workflow instance
-        const tx = await workflowEngine.createWorkflow(places, transitions, inputArcs, outputArcs, initialMarking, finalPlaces)
+        const tx = await workflowEngine.createWorkflow(places, transitions, arcs, initialMarking, finalPlaces)
 
         // Retrieve the created workflow instance (id = 1, automatically increments)
         let instance = await workflowEngine.workflowInstances(1);
@@ -94,19 +127,14 @@ describe("WorkflowEngine contract", () => {
         expect(bytesToCID(firstTransition.imageCID)).to.equal("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5");
         expect(bytesToCID(firstTransition.metadataCID)).to.be.null;
 
-        // Check if input arcs were created correctly
-        let createdInputArcs = await workflowEngine.getWorkflowInputArcs(1);
-        expect(createdInputArcs.length).to.equal(inputArcs.length);
-        expect(createdInputArcs[0].placeId).to.equal(inputArcs[0].placeId);
-        expect(createdInputArcs[0].transitionId).to.equal(inputArcs[0].transitionId);
-        expect(createdInputArcs[0].weight).to.equal(inputArcs[0].weight);
+        // Check if arcs were created correctly
+        let createdArcs = await workflowEngine.getWorkflowArcs(1);
+        expect(createdArcs.length).to.equal(arcs.length);
+        expect(createdArcs[0].placeId).to.equal(arcs[0].placeId);
+        expect(createdArcs[0].transitionId).to.equal(arcs[0].transitionId);
+        expect(createdArcs[0].weight).to.equal(arcs[0].weight);
+        expect(createdArcs[0].arcType).to.equal(ArcType.INPUT)
 
-        // Check if output arcs were created correctly
-        let createdOutputArcs = await workflowEngine.getWorkflowOutputArcs(1);
-        expect(createdOutputArcs.length).to.equal(outputArcs.length);
-        expect(createdOutputArcs[0].transitionId).to.equal(outputArcs[0].transitionId);
-        expect(createdOutputArcs[0].placeId).to.equal(outputArcs[0].placeId);
-        expect(createdOutputArcs[0].weight).to.equal(outputArcs[0].weight);
 
         // Check if initial marking was created correctly
         let { marking } = await workflowEngine.getMarking(1);
@@ -122,35 +150,34 @@ describe("WorkflowEngine contract", () => {
         expect(expectedNotFinal).to.equal(false);
         expect(expectedFinal).to.equal(true);
 
-        // Check if event was emitted.
+        // Check if events were emitted
         expect(tx).to.emit(workflowEngine, "WorkflowCreated").withArgs(1, owner.address);
+        expect(tx).to.emit(workflowEngine, "TaskScheduled").withArgs(1, 1, "QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5", Null.ADDRESS)
     });
 
     it("Should determine fireable transitions correctly: workflow creation", async () => {
         const { workflowEngine, owner } = await loadFixture(deployWorkflowEngineFixture);
 
         // Create simple petri-net
-        const { places, transitions, inputArcs, outputArcs, initialMarking, finalPlaces } = createValidPetrinet();
+        const { places, transitions, arcs, initialMarking, finalPlaces } = createValidPetrinet();
 
         // Create a new workflow instance
-        const tx = await workflowEngine.createWorkflow(places, transitions, inputArcs, outputArcs, initialMarking, finalPlaces)
+        const tx = await workflowEngine.createWorkflow(places, transitions, arcs, initialMarking, finalPlaces)
 
         /**
          * After creation, the updateInstanceState function is executed, which updates the state of transitions based on the marking
          **/
         let createdTransitions = await workflowEngine.getWorkflowTransitions(1);
-
         // First transition should be enabled
         let firstTransition = createdTransitions[0];
         expect(firstTransition.transitionId).to.equal(1);
         // Expect to equal to SCHEDULED (2)
-        expect(firstTransition.state).to.equal(0);
+        expect(firstTransition.state).to.equal(State.SCHEDULED);
 
         // Second transition should still be disabled
         let secondTransition = createdTransitions[1];
-        expect(firstTransition.transitionId).to.equal(1);
-        // Expect to equal to CREATED (1)
-        expect(firstTransition.state).to.equal(0);
+        expect(secondTransition.transitionId).to.equal(2);
+        expect(secondTransition.state).to.equal(State.CREATED);
 
     });
 
