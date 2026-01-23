@@ -121,7 +121,7 @@ describe("WorkflowEngine contract", () => {
         let createdTransitions = await workflowEngine.getWorkflowTransitions(1);
         let firstTransition = createdTransitions[1];
         expect(firstTransition.transitionId).to.equal(2);
-        expect(firstTransition.state).to.equal(0);
+        expect(firstTransition.state).to.equal(State.CREATED);
         expect(bytesToCID(firstTransition.imageCID)).to.equal("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5");
         expect(bytesToCID(firstTransition.metadataCID)).to.be.null;
 
@@ -135,7 +135,7 @@ describe("WorkflowEngine contract", () => {
 
 
         // Check if initial marking was created correctly
-        let { marking } = await workflowEngine.getMarking(1);
+        let marking  = await workflowEngine.getMarking(1);
         expect(marking.length).to.equal(initialMarking.length);
         expect(marking[0]).to.equal(initialMarking[0]);
         expect(marking[1]).to.equal(initialMarking[1]);
@@ -192,20 +192,28 @@ describe("WorkflowEngine contract", () => {
         await expect(tx).to.emit(workflowEngine, "WorkflowCreated");
         await expect(tx).to.emit(workflowEngine, "TaskSetScheduled");
 
+        // Store original marking: store first place
+        let originalMarking = await workflowEngine.getMarking(1);
+        expect(originalMarking[0]).to.equal(1);
+
         // Try to claim with wrong user
         await expect(workflowEngine.connect(addr1).claimTask(1, 1)).to.be.revertedWithCustomError(workflowEngine, "TaskReserved").withArgs(1, 1, owner)
 
         // Expect event: workflowId, transitionId & address
         await expect(workflowEngine.connect(owner).claimTask(1, 1)).to.emit(workflowEngine, "TaskSetClaimed").withArgs(1, 1, owner);
 
+        // Expect tokens from input place to be consumed (test if place 1 is consumed);
+        let updatedMarking = await workflowEngine.getMarking(1);
+        expect(updatedMarking[0]).to.equal(0);
+
         // Not able to claim tasks when state is not scheduled (was already claimed by someone)
         await expect(workflowEngine.connect(addr2).claimTask(1, 1)).to.be.revertedWithCustomError(workflowEngine, "TaskWasAlreadyClaimed").withArgs(1, 1, owner);
 
-        // Expect error when task cannot be claimed yet
+        // Expect error when task cannot be claimed yet (test with next task)
         await expect(workflowEngine.connect(owner).claimTask(1, 2)).to.be.revertedWithCustomError(workflowEngine, "TaskUnclaimable").withArgs(1, 2);
     });
 
-    it("Should be able to complete tasks", async () => {
+    it("Should be able to complete tasks and comlete workflow", async () => {
         const { workflowEngine, owner, addr1, addr2} = await loadFixture(deployWorkflowEngineFixture);
 
         // Create simple petri-net
@@ -230,14 +238,30 @@ describe("WorkflowEngine contract", () => {
 
         // Complete task with correct user
         let completeTask = await workflowEngine.connect(owner).completeTask(1, 1);
+        let taskCompleted = await workflowEngine.getWorkflowTransitionById(1, 1);
+        expect(taskCompleted.state).to.equal(State.COMPLETED)
         await expect(completeTask).to.emit(workflowEngine, "TaskSetCompleted").withArgs(1, 1, owner);
 
         // Expect next task to be planned
         await expect(completeTask).to.emit(workflowEngine, "TaskSetScheduled").withArgs(1, 2, CID.parse("QmfBMfSnC6wkxGiPXWckTBbAs5MvoJvsSBqe5zvotTSbz5").bytes, Null.BYTES)
 
-        // Expect
+        // Expect next task be scheduled.
         nextTransition = await workflowEngine.getWorkflowTransitionById(1, 2);
-        expect(nextTransition.state).to.equal(State.SCHEDULED);
+        expect(nextTransition.state).to.equal(State.SCHEDULED)
+
+        // Claim and complete next task
+        await expect(workflowEngine.connect(owner).claimTask(1, 2)).to.emit(workflowEngine, "TaskSetClaimed").withArgs(1, 2, owner);
+        let completeLastTask = await workflowEngine.connect(owner).completeTask(1, 2);
+        await expect(completeLastTask).to.emit(workflowEngine, "TaskSetCompleted").withArgs(1, 2, owner);
+
+        // Expect all tasks to be completed
+        let allTasks = await workflowEngine.getWorkflowTransitions(1);
+        for (let task of allTasks) {
+            expect(task.state).to.equal(State.COMPLETED);
+        }
+
+        // Expect workflowCompleted event
+        await expect(completeLastTask).to.emit(workflowEngine, "WorkflowCompleted").withArgs(1);
     })
 
 

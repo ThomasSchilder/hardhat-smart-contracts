@@ -43,6 +43,7 @@ contract WorkflowEngine {
     struct Instance {
         address owner;
         uint64 workflowId;
+        State state;
         // Array of all places in the workflow: Note that we mostly use the place id for mappings
         uint16[] placeIds;
         mapping (uint16 => bool) places;
@@ -63,6 +64,7 @@ contract WorkflowEngine {
     event TaskSetClaimed(uint64 indexed workflowId, uint16 indexed transitionId, address claimedBy);
     event TaskSetSkipped(uint64 indexed workflowId, uint16 indexed transitionId);
     event TaskSetCompleted(uint64 indexed workflowId, uint16 indexed transitionId, address completedBy);
+    event WorkflowCompleted(uint64 indexed workflowId);
 
     // Errors
     error InvalidPlaceMarkings(uint16[] places, uint16[] weights);
@@ -97,7 +99,9 @@ contract WorkflowEngine {
         setFinalPlaces(inst, finalPlaces);
 
         emit WorkflowCreated(incrementalId, msg.sender);
+        inst.state = State.CREATED;
 
+        // Start scheduling
         updateInstanceState(incrementalId);
     }
     /**
@@ -175,6 +179,11 @@ contract WorkflowEngine {
                 Transition memory transition = inst.transitions[transitionId];
                 transition.state = State.SCHEDULED;
                 emit TaskSetScheduled(workflowId, transitionId, transition.imageCID, transition.metadataCID);
+
+                // If this is the first value being scheduled:
+                if (inst.state == State.CREATED) {
+                    inst.state = State.SCHEDULED;
+                }
             }
         }
     }
@@ -213,7 +222,7 @@ contract WorkflowEngine {
      */
     function claimTask(uint64 workflowId, uint16 transitionId) external {
         Instance storage inst = workflowInstances[workflowId];
-        Transition storage transition =  workflowInstances[workflowId].transitions[transitionId];
+        Transition storage transition = workflowInstances[workflowId].transitions[transitionId];
         if (transition.state == State.CLAIMED) revert TaskWasAlreadyClaimed(workflowId, transitionId, transition.claimedBy);
         if (transition.claimedBy != address(0) && transition.claimedBy != msg.sender) revert TaskReserved(workflowId, transitionId, transition.claimedBy);
         if (transition.state != State.SCHEDULED) revert TaskUnclaimable(workflowId, transitionId);
@@ -230,6 +239,32 @@ contract WorkflowEngine {
         transition.state = State.CLAIMED;
         transition.claimedBy = msg.sender;
         emit TaskSetClaimed(workflowId, transitionId, transition.claimedBy);
+
+        // Consume input tokens
+        consumeInputTokens(workflowId, transitionId);
+
+        // If Workflow state is still SCHEDULED: alter to RUNNING
+        if (inst.state == State.SCHEDULED) {
+            inst.state = State.RUNNING;
+        }
+    }
+    /**
+     * This function updates the workflow marking using Arcs
+     */
+    function consumeInputTokens(uint64 workflowId, uint16 transitionId) internal {
+        // Update output places using arcs
+        Instance storage inst = workflowInstances[workflowId];
+        Arc[] memory workflowArcs = inst.arcs[transitionId];
+        for (uint16 i; i < workflowArcs.length; i++) {
+            Arc memory arc = workflowArcs[i];
+            // Only check output arcs
+            if (arc.arcType == ArcType.OUTPUT) {
+                continue;
+            }
+            // Update output place
+            uint16 placeId = arc.placeId;
+            inst.marking[placeId] = inst.marking[placeId] - arc.weight;
+        }
     }
     /**
      * On task completion, this function triggers a transition firing:
@@ -246,7 +281,23 @@ contract WorkflowEngine {
         transition.state = State.COMPLETED;
         emit TaskSetCompleted(workflowId, transitionId, msg.sender);
 
+        // Produce output tokens
+        produceOutputTokens(workflowId, transitionId);
+
+        // Check workflow completion
+        bool complete = checkWorkflowCompletion(workflowId);
+        if (complete == true) {
+            return;
+        }
+        // Enable new transitions based on new marking.
+        updateInstanceState(workflowId);
+    }
+    /**
+     * This function updates the workflow marking using Arcs
+     */
+    function produceOutputTokens(uint64 workflowId, uint16 transitionId) internal {
         // Update output places using arcs
+        Instance storage inst = workflowInstances[workflowId];
         Arc[] memory workflowArcs = inst.arcs[transitionId];
         for (uint16 i; i < workflowArcs.length; i++) {
             Arc memory arc = workflowArcs[i];
@@ -258,10 +309,44 @@ contract WorkflowEngine {
             uint16 placeId = arc.placeId;
             inst.marking[placeId] = inst.marking[placeId] + arc.weight;
         }
-        // Enable new transitions based on new marking.
-        updateInstanceState(workflowId);
     }
-
+    /**
+     * Function to check if workflow is complete:
+     * - Workflow is complete if no tokens exist in places other than final places.
+     * - This function finalizes the workfow. Since we work on a consortium chain, no gas fee is involved.
+     * For public blockchains, we should create a different solution for finalizing a blockchain.
+     */
+    function checkWorkflowCompletion(uint64 workflowId) internal returns(bool complete) {
+        Instance storage inst = workflowInstances[workflowId];
+        complete = true;
+        for (uint16 i; i < inst.placeIds.length; i++) {
+            uint16 placeId = inst.placeIds[i];
+            if (inst.marking[placeId] > 0 && inst.finalPlaces[placeId] == false) {
+                complete = false;
+                break;
+            }
+        }
+        if (complete == true) {
+            completeWorkflow(workflowId);
+        }
+        return complete;
+    }
+    /**
+     * Function to complete workflow
+     */
+    function completeWorkflow(uint64 workflowId) internal {
+        Instance storage inst = workflowInstances[workflowId];
+        for (uint16 i; i < inst.transitionIds.length; i++) {
+            Transition storage transition = inst.transitions[inst.transitionIds[i]];
+            if (transition.state == State.CREATED || transition.state == State.SCHEDULED) {
+                transition.state = State.SKIPPED;
+            } else if (transition.state == State.CLAIMED || transition.state == State.AWAIT_USER_INPUT || transition.state == State.RUNNING) {
+                transition.state = State.FAILED;
+            }
+        }
+        inst.state = State.COMPLETED;
+        emit WorkflowCompleted(workflowId);
+    }
     /** ------------------------------------------------------------------------------------------------
      *
      *
@@ -324,11 +409,11 @@ contract WorkflowEngine {
     /**
      * Getter function to retrieve the current marking of a given workflow instance.
      */
-    function getMarking(uint64 workflowId) external view returns (uint16[] memory places, uint16[] memory marking) {
-        places = workflowInstances[workflowId].placeIds;
-        marking = new uint16[](workflowInstances[workflowId].placeIds.length);
-        for (uint16 i = 0; i < workflowInstances[workflowId].placeIds.length; i++) {
-            uint16 placeId = workflowInstances[workflowId].placeIds[i];
+    function getMarking(uint64 workflowId) external view returns (uint16[] memory marking) {
+        uint16[] memory places = workflowInstances[workflowId].placeIds;
+        marking = new uint16[](places.length);
+        for (uint16 i = 0; i < places.length; i++) {
+            uint16 placeId = places[i];
             marking[i] = workflowInstances[workflowId].marking[placeId];
         }
     }
