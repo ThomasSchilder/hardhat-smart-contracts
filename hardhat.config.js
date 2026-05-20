@@ -1,4 +1,5 @@
 require("@nomicfoundation/hardhat-toolbox");
+require("dotenv").config();
 
 /** @type import('hardhat/config').HardhatUserConfig */
 const config = {
@@ -12,7 +13,15 @@ const config = {
         },
       },
     ]
+  },
+  networks: {
+    besu: {
+      url: process.env.BESU_RPC_URL || "http://127.0.0.1:8545",
+      chainId: 1811,
+      accounts: process.env.BESU_PRIVATE_KEY ? [process.env.BESU_PRIVATE_KEY] : [],
+      gasPrice: 0,
+    }
   }
 };
 
-  module.exports = config;
+module.exports = config;
