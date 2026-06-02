@@ -13,10 +13,10 @@ async function main() {
     }
     const contract = await ethers.getContractAt("AssetV1", process.env.DEPLOYED_ADDRESS);
 
-    let name = "Hello world 2";
+    let name = "Hello world 4";
     let url = "https://docs.google.com/document/d/1iuGD04XCu3jvj2qJNcL_XnPjSm-Hoxxt/export?format=docx";
     let protocol = 0;
-    let metadata = '{"description":"A second demo dataset for testing","format":"DOCX","size":"6KB"}'
+    let metadata = '{"description":"A fourth demo dataset for testing","format":"DOCX","size":"6KB"}'
 
     let tx = await contract.createAsset(name, url, protocol, protocol, metadata);
 

@@ -5,6 +5,7 @@
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
+    "createAsset": "npx hardhat run scripts/createAsset.js --network besu",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "ThomasSchilder",
