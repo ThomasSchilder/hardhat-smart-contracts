@@ -259,4 +259,113 @@ describe("AssetV1", () => {
 
         expect(await assetContract.incrementalAssetId()).to.equal(3);
     });
+
+    describe("policyAddress", () => {
+
+        it("Should return address(0) by default after creation", async () => {
+            const { assetContract, owner } = await loadFixture(deployAssetV1Fixture);
+
+            await assetContract.connect(owner).createAsset(
+                "Test Asset",
+                "https://test.com",
+                Protocol['HTTP'],
+                AssetType['DATASET'],
+                '{}'
+            );
+
+            expect(await assetContract.getPolicyAddress(1)).to.equal(ethers.ZeroAddress);
+        });
+
+        it("Should set policyAddress and emit AssetPolicySet", async () => {
+            const { assetContract, owner, addr1 } = await loadFixture(deployAssetV1Fixture);
+
+            await assetContract.connect(owner).createAsset(
+                "Test Asset",
+                "https://test.com",
+                Protocol['HTTP'],
+                AssetType['DATASET'],
+                '{}'
+            );
+
+            let tx = await assetContract.connect(owner).setPolicyAddress(1, addr1.address);
+            await expect(tx).to.emit(assetContract, "AssetPolicySet")
+                .withArgs(1, addr1.address);
+
+            expect(await assetContract.getPolicyAddress(1)).to.equal(addr1.address);
+        });
+
+        it("Should allow updating policyAddress", async () => {
+            const { assetContract, owner, addr1, addr2 } = await loadFixture(deployAssetV1Fixture);
+
+            await assetContract.connect(owner).createAsset(
+                "Test Asset",
+                "https://test.com",
+                Protocol['HTTP'],
+                AssetType['DATASET'],
+                '{}'
+            );
+
+            await assetContract.connect(owner).setPolicyAddress(1, addr1.address);
+            expect(await assetContract.getPolicyAddress(1)).to.equal(addr1.address);
+
+            await assetContract.connect(owner).setPolicyAddress(1, addr2.address);
+            expect(await assetContract.getPolicyAddress(1)).to.equal(addr2.address);
+        });
+
+        it("Should allow setting policyAddress back to address(0)", async () => {
+            const { assetContract, owner, addr1 } = await loadFixture(deployAssetV1Fixture);
+
+            await assetContract.connect(owner).createAsset(
+                "Test Asset",
+                "https://test.com",
+                Protocol['HTTP'],
+                AssetType['DATASET'],
+                '{}'
+            );
+
+            await assetContract.connect(owner).setPolicyAddress(1, addr1.address);
+            await assetContract.connect(owner).setPolicyAddress(1, ethers.ZeroAddress);
+
+            expect(await assetContract.getPolicyAddress(1)).to.equal(ethers.ZeroAddress);
+        });
+
+        it("Should revert when non-owner tries to set policyAddress", async () => {
+            const { assetContract, owner, addr1 } = await loadFixture(deployAssetV1Fixture);
+
+            await assetContract.connect(owner).createAsset(
+                "Test Asset",
+                "https://test.com",
+                Protocol['HTTP'],
+                AssetType['DATASET'],
+                '{}'
+            );
+
+            await expect(assetContract.connect(addr1).setPolicyAddress(1, addr1.address))
+                .to.be.revertedWithCustomError(assetContract, "Unauthorized").withArgs(1, addr1.address);
+        });
+
+        it("Should revert when setting policyAddress on archived asset", async () => {
+            const { assetContract, owner, addr1 } = await loadFixture(deployAssetV1Fixture);
+
+            await assetContract.connect(owner).createAsset(
+                "Test Asset",
+                "https://test.com",
+                Protocol['HTTP'],
+                AssetType['DATASET'],
+                '{}'
+            );
+
+            await assetContract.connect(owner).archiveAsset(1);
+
+            await expect(assetContract.connect(owner).setPolicyAddress(1, addr1.address))
+                .to.be.revertedWithCustomError(assetContract, "AssetArchivedError").withArgs(1);
+        });
+
+        it("Should revert when setting policyAddress on non-existent asset", async () => {
+            const { assetContract, owner, addr1 } = await loadFixture(deployAssetV1Fixture);
+
+            await expect(assetContract.connect(owner).setPolicyAddress(999, addr1.address))
+                .to.be.revertedWithCustomError(assetContract, "AssetNotFound").withArgs(999);
+        });
+    });
 });

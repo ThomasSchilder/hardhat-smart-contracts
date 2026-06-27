@@ -4,21 +4,34 @@
  */
 
 const hre = require("hardhat");
+const ASSET_TYPE = {
+    "DATASET":0,
+    "MODEL":1,
+    "FUNCTION": 2,
+    "VM": 3,
+    "CLUSTER": 4
+};
+const PROTOCOL = {
+    "HTTP": 0,
+    "FTP": 1,
+    "S3": 2
+};
 
 async function main() {
 
-    if (!process.env.DEPLOYED_ADDRESS) {
-        console.error("Environment variable 'DEPLOYED_ADDRESS' is not set");
+    if (!process.env.DEPLOYED_ASSETV1_CONTRACT) {
+        console.error("Environment variable 'DEPLOYED_ASSETV1_CONTRACT' is not set");
         process.exit(1);
     }
-    const contract = await ethers.getContractAt("AssetV1", process.env.DEPLOYED_ADDRESS);
+    const contract = await ethers.getContractAt("AssetV1", process.env.DEPLOYED_ASSETV1_CONTRACT);
 
-    let name = "Hello world 4";
-    let url = "https://docs.google.com/document/d/1iuGD04XCu3jvj2qJNcL_XnPjSm-Hoxxt/export?format=docx";
-    let protocol = 0;
-    let metadata = '{"description":"A fourth demo dataset for testing","format":"DOCX","size":"6KB"}'
+    let name = "local-cluster";
+    let url = "http://localhost:8080";
+    let protocol = PROTOCOL.HTTP;
+    let type = ASSET_TYPE.CLUSTER
+    let metadata = '{"description":"A local cluster to deploy scientific workflows using dvre-workflow-scheduler","type": "k3s", "version": "v1.35.5+k3s1"}';
 
-    let tx = await contract.createAsset(name, url, protocol, protocol, metadata);
+    let tx = await contract.createAsset(name, url, protocol, type, metadata);
 
 
     let receipt = await tx.wait();

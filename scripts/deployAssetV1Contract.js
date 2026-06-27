@@ -6,6 +6,8 @@ async function main() {
 
   const address = await AssetV1.getAddress();
   console.log("AssetV1 deployed to:", address);
+  console.log("\nSet in .env: DEPLOYED_ASSETV1_CONTRACT=" + address);
+
 }
 
 main().catch((error) => {

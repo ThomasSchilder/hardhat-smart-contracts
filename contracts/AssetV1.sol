@@ -10,7 +10,8 @@ import "hardhat/console.sol";
  * Assets have a name, URL, protocol, type, and status.
  * Assets can be created, updated, and archived.
  *
- * In this version, access management is not yet implemented. In a future version, this will be included.
+ * In this version, access management is implemented via policyAddress linking.
+ * Each asset can reference a policy contract (SmartPolicy). address(0) = public asset.
  */
 
 contract AssetV1 {
@@ -28,6 +29,7 @@ contract AssetV1 {
         string url;
         Protocol protocol;
         string metadata;
+        address policyAddress;
     }
 
     mapping(uint64 => Asset) public assets;
@@ -37,6 +39,7 @@ contract AssetV1 {
     event AssetUpdated(uint64 indexed assetId);
     event AssetStatusChanged(uint64 indexed assetId, AssetStatus status);
     event AssetArchived(uint64 indexed assetId);
+    event AssetPolicySet(uint64 indexed assetId, address indexed policyAddress);
 
     error AssetNotFound(uint64 assetId);
     error Unauthorized(uint64 assetId, address sender);
@@ -136,5 +139,14 @@ contract AssetV1 {
 
     function getMetadata(uint64 assetId) external view returns (string memory) {
         return assets[assetId].metadata;
+    }
+
+    function setPolicyAddress(uint64 assetId, address _policyAddress) external onlyOwner(assetId) notArchived(assetId) {
+        assets[assetId].policyAddress = _policyAddress;
+        emit AssetPolicySet(assetId, _policyAddress);
+    }
+
+    function getPolicyAddress(uint64 assetId) external view returns (address) {
+        return assets[assetId].policyAddress;
     }
 }
