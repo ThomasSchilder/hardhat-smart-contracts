@@ -23,10 +23,12 @@ async function main() {
         console.error("Environment variable 'DEPLOYED_ASSETV1_CONTRACT' is not set");
         process.exit(1);
     }
-    const contract = await ethers.getContractAt("AssetV1", process.env.DEPLOYED_ASSETV1_CONTRACT);
+    // const contract = await ethers.getContractAt("AssetV1", process.env.DEPLOYED_ASSETV1_CONTRACT);
+    const signers = await ethers.getSigners();
+    const contract = await ethers.getContractAt("AssetV1", process.env.DEPLOYED_ASSETV1_CONTRACT, signers[1]);
 
-    let name = "local-cluster";
-    let url = "http://localhost:8080";
+    let name = "local-cluster-8082";
+    let url = "http://localhost:8082";
     let protocol = PROTOCOL.HTTP;
     let type = ASSET_TYPE.CLUSTER
     let metadata = '{"description":"A local cluster to deploy scientific workflows using dvre-workflow-scheduler","type": "k3s", "version": "v1.35.5+k3s1"}';

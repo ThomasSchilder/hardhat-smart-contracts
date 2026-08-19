@@ -14,7 +14,9 @@ async function main() {
     process.exit(1);
   }
 
-  const contract = await ethers.getContractAt("AssetV1", process.env.DEPLOYED_ASSETV1_CONTRACT);
+  // const contract = await ethers.getContractAt("AssetV1", process.env.DEPLOYED_ASSETV1_CONTRACT);
+  const signers = await ethers.getSigners();
+  const contract = await ethers.getContractAt("AssetV1", process.env.DEPLOYED_ASSETV1_CONTRACT, signers[1]);
 
   let tx = await contract.setPolicyAddress(process.env.ASSET_ID, process.env.DEPLOYED_RESEARCHER_POLICY_CONTRACT);
   let receipt = await tx.wait();
